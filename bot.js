@@ -29,6 +29,12 @@ class TeamPicker {
       // Channels
       this.debugChannel   = this.client.channels.cache.get(config.debugChannel);
       this.managerChannel = this.client.channels.cache.get(config.channel);
+      this.manager = new ChannelManager(this, this.managerChannel);
+
+      // Channel listeners
+      this.client.on('message', (msg) => {
+         if(msg.channel == this.managerChannel) {this.manager.onMessage(msg);}
+      });
 
       // Fail on invalid channels
       if (!this.debugChannel || !this.managerChannel) {
@@ -52,8 +58,13 @@ class TeamPicker {
 
 class ChannelManager {
 
-   constructor(client, channel) {
+   constructor(bot, channel) {
+      this.bot = bot;
+      this.channel = channel;
+   }
 
+   onMessage(msg) {
+      
    }
 }
 
