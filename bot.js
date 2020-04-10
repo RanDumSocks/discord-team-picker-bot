@@ -28,18 +28,21 @@ class TeamPicker {
    onReady() {
       // Channels
       this.debugChannel   = this.client.channels.cache.get(config.debugChannel);
-      this.managerChannel = this.client.channels.cache.get(config.channel);
-      this.manager = new ChannelManager(this, this.managerChannel);
+      this.channelMap     = new Map();
+      for (var i = config.channels.length - 1; i >= 0; i--) {
+         let channelID = config.channels[i];
+         let channel = this.client.channels.cache.get(channelID);
+         if (!channel) {
+            this.debug(`Channel ID ${channelID} not found, aborting...`);
+         }
+         this.channelMap.set(channelID, new ChannelManager(this, channel));
+      }
 
       // Channel listeners
       this.client.on('message', (msg) => {
-         if(msg.channel == this.managerChannel) {this.manager.onMessage(msg);}
+         let channelManager = this.channelMap.get(msg.channel.id);
+         if (channelManager) {channelManager.onMessage(msg);}
       });
-
-      // Fail on invalid channels
-      if (!this.debugChannel || !this.managerChannel) {
-         this.debug("Invalid channel IDs given in config... exiting");
-      }
 
       this.debug(`Team Picker Bot running v${version}`);
    }
