@@ -167,7 +167,7 @@ class ChannelManager {
 
    onReact(reaction, user) {
       if (user.bot) return;
-      reaction.users.remove(user)
+      reaction.users.remove(user);
       if (this.isState("idle")) {
          this.state = "queueing";
          this.queuePlayer(user);
@@ -192,7 +192,7 @@ class ChannelManager {
             this.dequeuePlayer(player);
          }
          if (this.playerQueue.size == 0) {
-            this.matches.push(new Match(this.teamA, this.teamB, this));
+            this.matches.push(new Match(this.teamA, this.teamB, this.captains, this));
             this.teamA = [];
             this.teamB = [];
             this.state = "idle";
@@ -373,14 +373,17 @@ class ChannelManager {
 
 class Match {
 
-   constructor(teamA, teamB, manager) {
+   constructor(teamA, teamB, captains, manager) {
       this.teamA    = teamA;
       this.teamB    = teamB;
+      this.captains = captains;
       this.manager  = manager;
       this.ID       = manager.getNextRoomID();
       this.guild    = manager.channel.guild;
       this.roomName = `Room ${this.ID}`;
       this.roleName = `Match ${this.ID}`;
+      this.reaYes   = "✅";
+      this.lobbyMsg = undefined;
 
       this.matchChannel = undefined;
       this.genChannel   = undefined;
@@ -389,13 +392,16 @@ class Match {
       this.teamAVoice   = undefined;
       this.teamBVoice   = undefined;
 
-      this.sendTeamList();
-      this.createRoom();
+      this.createRoom().then( _ => {
+         this.sendTeamList();
+      });
    }
 
    sendTeamList() {
       var teamAPlayers = "";
       var teamBPlayers = "";
+      var commonMsg    = `Match created! Please join the private lobby here:\n`+
+                         `https://discordapp.com/channels/${this.guild.id}/${this.genChannel.id}\n`;
       for (var i = 0; i < this.teamA.length; i++) {
          teamAPlayers += `•     ${this.teamA[i]}\n`
       }
@@ -404,95 +410,118 @@ class Match {
       }
       for (var i = 0; i < this.teamA.length; i++) {
          this.teamA[i]
-         this.manager.sendDM(this.teamA[i], `Here are your team members:\n`+
-                                            `${teamAPlayers}\n`);
+         this.manager.sendDM(this.teamA[i], `Here are your team A members:\n`+
+                                            `${teamAPlayers}\n${commonMsg}`);
       }
       for (var i = 0; i < this.teamB.length; i++) {
          this.teamB[i]
-         this.manager.sendDM(this.teamB[i], `Here are your team members:\n`+
-                                            `${teamBPlayers}\n`);
+         this.manager.sendDM(this.teamB[i], `Here are your team B members:\n`+
+                                            `${teamBPlayers}\n${commonMsg}`);
       }
    }
 
    async createRoom() {
-      this.teamARole = await this.guild.roles.create({
-         data: {
-            name: this.roleName + " A",
+      return new Promise( async (res, rej) => {
+         this.teamARole = await this.guild.roles.create({
+            data: {
+               name: this.roleName + " A",
+            }
+         });
+         this.teamBRole = await this.guild.roles.create({
+            data: {
+               name: this.roleName + " B",
+            }
+         });
+
+         this.matchChannel = await this.guild.channels.create(this.roomName, {
+            type: "category",
+            permissionOverwrites: [{
+               id: this.guild.roles.everyone,
+               deny: Discord.Permissions.FLAGS.VIEW_CHANNEL,
+            }, {
+               id: this.manager.bot.client.user,
+               allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
+            }]
+         });
+         this.genChannel = await this.guild.channels.create("Lobby", {
+            parent: this.matchChannel,
+            permissionOverwrites: [{
+               id: this.teamARole,
+               allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
+            }, {
+               id: this.teamBRole,
+               allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
+            },{
+               id: this.guild.roles.everyone,
+               deny: Discord.Permissions.FLAGS.VIEW_CHANNEL,
+            },{
+               id: this.manager.bot.client.user,
+               allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
+            }]
+         });
+
+         this.teamAVoice = await this.guild.channels.create("Team A", {
+            type: "voice",
+            parent: this.matchChannel,
+            permissionOverwrites: [{
+               id: this.teamARole,
+               allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
+            },{
+               id: this.guild.roles.everyone,
+               deny: Discord.Permissions.FLAGS.VIEW_CHANNEL,
+            },{
+               id: this.manager.bot.client.user,
+               allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
+            }]
+         });
+
+         this.teamBVoice = await this.guild.channels.create("Team B", {
+            type: "voice",
+            parent: this.matchChannel,
+            permissionOverwrites: [{
+               id: this.teamBRole,
+               allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
+            },{
+               id: this.guild.roles.everyone,
+               deny: Discord.Permissions.FLAGS.VIEW_CHANNEL,
+            },{
+               id: this.manager.bot.client.user,
+               allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
+            }]
+         });
+
+         for (var i = 0; i < this.teamA.length; i++) {
+            await this.guild.member(this.teamA[i]).roles.add(this.teamARole);
          }
-      });
-      this.teamBRole = await this.guild.roles.create({
-         data: {
-            name: this.roleName + " B",
+         for (var i = 0; i < this.teamB.length; i++) {
+            await this.guild.member(this.teamB[i]).roles.add(this.teamBRole);
          }
+         this.lobbyMsg = await this.genChannel.send(
+            `Welcome to the lobby for Match #${this.ID}!\n\n`+
+            `When the match is over, winning captain react with ${this.reaYes} to log victory and close match.`);
+         await this.lobbyMsg.react(this.reaYes);
+         var collector = this.lobbyMsg.createReactionCollector(() => true);
+         collector.on('collect', (reaction, user) => this.onReact(reaction, user));
+         res();
       });
+   }
 
-      this.matchChannel = await this.guild.channels.create(this.roomName, {
-         type: "category",
-         permissionOverwrites: [{
-            id: this.guild.roles.everyone,
-            deny: Discord.Permissions.FLAGS.VIEW_CHANNEL,
-         }, {
-            id: this.manager.bot.client.user,
-            allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
-         }]
-      });
-      this.genChannel = await this.guild.channels.create("Lobby", {
-         parent: this.matchChannel,
-         permissionOverwrites: [{
-            id: this.teamARole,
-            allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
-         }, {
-            id: this.teamBRole,
-            allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
-         },{
-            id: this.guild.roles.everyone,
-            deny: Discord.Permissions.FLAGS.VIEW_CHANNEL,
-         },{
-            id: this.manager.bot.client.user,
-            allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
-         }]
-      });
-
-      this.teamAVoice = await this.guild.channels.create("Team A", {
-         type: "voice",
-         parent: this.matchChannel,
-         permissionOverwrites: [{
-            id: this.teamARole,
-            allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
-         },{
-            id: this.guild.roles.everyone,
-            deny: Discord.Permissions.FLAGS.VIEW_CHANNEL,
-         },{
-            id: this.manager.bot.client.user,
-            allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
-         }]
-      });
-
-      this.teamBVoice = await this.guild.channels.create("Team B", {
-         type: "voice",
-         parent: this.matchChannel,
-         permissionOverwrites: [{
-            id: this.teamBRole,
-            allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
-         },{
-            id: this.guild.roles.everyone,
-            deny: Discord.Permissions.FLAGS.VIEW_CHANNEL,
-         },{
-            id: this.manager.bot.client.user,
-            allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
-         }]
-      });
-
-      for (var i = 0; i < this.teamA.length; i++) {
-         this.guild.member(this.teamA[i]).roles.add(this.teamARole);
-      }
-      for (var i = 0; i < this.teamB.length; i++) {
-         this.guild.member(this.teamB[i]).roles.add(this.teamBRole);
+   onReact(reaction, user) {
+      if (user.bot) return;
+      reaction.users.remove(user);
+      if (this.captains.includes(user)) {
+         if (this.teamA.includes(user)) {
+            console.log("team A victory");
+         } else {
+            console.log("team B victory");
+         }
+         this.destroy();
       }
    }
 
    destroy() {
       return new Promise( async (res, rej) => {
+         this.manager.matches.splice(this.manager.matches.indexOf(this), 1);
          await this.genChannel.delete();
          await this.teamARole.delete();
          await this.teamBRole.delete();
