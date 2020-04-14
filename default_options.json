@@ -4,5 +4,6 @@
    ],
    "debugChannel": "698050714324434986",
    "commandPrefix": "!",
-   "messageUpdateInterval": 3000
+   "messageUpdateInterval": 3000,
+   "queueSize": 10
 }

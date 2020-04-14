@@ -12,6 +12,12 @@ const defaultOptionsFile = eJson(`${__dirname}/default_options.json`);
 const userOptionsFile = eJson(`${__dirname}/options.json`);
 const config = {...defaultOptionsFile.toObject(), ...userOptionsFile.toObject()};
 
+// General functions
+function getRandomKey(collection) {
+   let keys = Array.from(collection.keys());
+   return keys[Math.floor(Math.random() * keys.length)];
+}
+
 class TeamPicker {
 
    constructor() {
@@ -106,6 +112,7 @@ class ChannelManager {
       this.states  = {
          idle: 0,
          queueing: 1,
+         picking: 2
       }
 
       // Instance variables
@@ -117,10 +124,14 @@ class ChannelManager {
       // Manager variables
       this.playerQueue = new Map();
       this.message     = this.getMessage();
+      this.captains    = [];
+      this.teamA       = [];
+      this.teamB       = [];
 
       // Reaction variables
       this.reaQueue = "🇶";
       this.reaCancel = "❌";
+      this.reaNums = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"];
 
       this.update();
 
@@ -148,10 +159,13 @@ class ChannelManager {
       } else if (this.isState("queueing")){
          if (reaction.emoji.name == this.reaQueue) {
             this.queuePlayer(user);
+            if (this.playerQueue.size == config.queueSize) this.state = "picking";
          } else if (reaction.emoji.name == this.reaCancel) {
             this.dequeuePlayer(user);
             if (this.playerQueue.size == 0) this.state = "idle";
          }
+      } else if (this.isState("picking")) {
+
       }
    }
 
@@ -177,6 +191,24 @@ class ChannelManager {
    set state(state) {
       this.debug(`Switching to state \`${state}\``);
       this.currState = this.states[state];
+      if (this.isState("picking")) {
+
+         var captainUser = this.playerQueue.get(getRandomKey(this.playerQueue));
+         this.captains[0] = captainUser;
+         this.dequeuePlayer(captainUser);
+         this.teamA.push(captainUser);
+
+         captainUser = this.playerQueue.get(getRandomKey(this.playerQueue));
+         this.captains[1] = captainUser;
+         this.dequeuePlayer(captainUser);
+         this.teamB.push(captainUser);
+
+         var playerNum = 0
+         this.playerQueue.forEach( (val, key, map) => {
+            val.playerEmoji = this.reaNums[playerNum];
+            playerNum += 1;
+         });
+      }
    }
 
    isState(state) {
@@ -228,12 +260,34 @@ class ChannelManager {
       } else if (this.isState("queueing")) {
          var playersText = "";
          this.playerQueue.forEach( (val, key, map) => {
-            playersText += `•     <@${val.id}>\n`
-         })
+            playersText += `•     ${val}\n`
+         });
          this.setMessage(`Queue has begun! React with ${this.reaQueue} to add yourself to the queue!\n`+
                          `To remove yourself from the queue, react with ${this.reaCancel}.\n\n`+
                          `Queued players:\n${playersText}\n`,
                          [this.reaQueue, this.reaCancel]);
+      } else if (this.isState("picking")) {
+         var playersText = "";
+         var playerEmojis = [];
+         var teamAString = "";
+         var teamBString = "";
+         this.playerQueue.forEach( (val, key, map) => {
+            playersText += `${val.playerEmoji}: ${val}\n`;
+            playerEmojis.push(val.playerEmoji);
+         });
+         for (var i = 0; i < this.teamA.length; i++) {
+            teamAString += `•     ${this.teamA[i]}\n`
+         }
+         for (var i = 0; i < this.teamB.length; i++) {
+            teamBString += `•     ${this.teamB[i]}\n`
+         }
+         this.setMessage(`Team captains have been picked, congrats ${this.captains[0]} and ${this.captains[1]}!\n`+
+                         `When it's your turn to pick, react with the emoji next to the player's name to place them on your team.\n\n`+
+                         `<name>, please select your player!\n`+
+                         `${playersText}\n\n`+
+                         `Team A:\n${teamAString}\n`+
+                         `Team B:\n${teamBString}\n`,
+                         playerEmojis);
       }
    }
 
@@ -245,8 +299,8 @@ class ChannelManager {
                val.remove();
             }
          })
-         for (var i = reactions.length - 1; i >= 0; i--) {
-            if (!msg.reactions.cache.get(reactions[i])) {
+         for (var i = 0; i < reactions.length; i++) {
+            if (reactions[i] && !msg.reactions.cache.get(reactions[i])) {
                await msg.react(reactions[i]);
             }
          }
