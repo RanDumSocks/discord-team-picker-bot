@@ -26,6 +26,8 @@ class TeamPicker {
       this.debugChannel = undefined;
       this.channelMap   = undefined;
 
+      this.roomID       = 0;
+
       // Create required folders
       if (!fs.existsSync('managerCommands')) fs.mkdirSync('managerCommands');
 
@@ -93,15 +95,23 @@ class TeamPicker {
       }
    }
 
+   getNextRoomID() {
+      this.roomID += 1;
+      return this.roomID;
+   }
+
    debug(message) {
       console.log(message);
       return this.debugChannel.send(message);
    }
 
-   async shutdown() {
-      await this.debug('Shutting down...');
-      this.client.destroy();
-      process.exit();
+   shutdown() {
+      this.debug('Shutting down...');
+      this.channelMap.forEach( (val, key, map) => {
+         val.destroy();
+      });
+      //this.client.destroy();
+      //process.exit();
    }
 }
 
@@ -185,6 +195,7 @@ class ChannelManager {
             this.state = "idle";
          }
       }
+      this.updateQueueMessage();
    }
 
    update() {
@@ -229,6 +240,7 @@ class ChannelManager {
 
          this.currCaptain = this.captains[0];
       }
+      this.updateQueueMessage();
    }
 
    isState(state) {
@@ -240,7 +252,6 @@ class ChannelManager {
       if (!this.playerQueue.has(userID)) {
          this.playerQueue.set(userID, user);
          this.debug(`Queueing player ${user.username}`);
-         this.updateQueueMessage();
       }
    }
 
@@ -249,7 +260,6 @@ class ChannelManager {
       if (this.playerQueue.has(userID)) {
          this.playerQueue.delete(userID);
          this.debug(`Dequeueing player ${user.username}`);
-         this.updateQueueMessage();
       }
    }
 
@@ -341,19 +351,41 @@ class ChannelManager {
        dm.delete();
    }
 
+   getNextRoomID() {
+      return this.bot.getNextRoomID();
+   }
+
    debug(message) {
       this.bot.debug(`\`${this.channel.name} manager:\`\n${message}`)
+   }
+
+   destroy() {
+      for (var i = 0; i < this.matches.length; i++) {
+         this.matches[i].destroy();
+      }
    }
 }
 
 class Match {
 
    constructor(teamA, teamB, manager) {
-      this.teamA   = teamA;
-      this.teamB   = teamB;
-      this.manager = manager;
+      this.teamA    = teamA;
+      this.teamB    = teamB;
+      this.manager  = manager;
+      this.ID       = manager.getNextRoomID();
+      this.guild    = manager.channel.guild;
+      this.roomName = `Room ${this.ID}`;
+      this.roleName = `Match ${this.ID}`;
+
+      this.matchChannel = undefined;
+      this.genChannel   = undefined;
+      this.teamARole    = undefined;
+      this.teamBRole    = undefined;
+      this.teamAVoice   = undefined;
+      this.teamBVoice   = undefined;
 
       this.sendTeamList();
+      this.createRoom();
    }
 
    sendTeamList() {
@@ -375,6 +407,92 @@ class Match {
          this.manager.sendDM(this.teamB[i], `Here are your team members:\n`+
                                             `${teamBPlayers}\n`);
       }
+   }
+
+   async createRoom() {
+      this.teamARole = await this.guild.roles.create({
+         data: {
+            name: this.roleName + " A",
+         }
+      });
+      this.teamBRole = await this.guild.roles.create({
+         data: {
+            name: this.roleName + " B",
+         }
+      });
+
+      this.matchChannel = await this.guild.channels.create(this.roomName, {
+         type: "category",
+         permissionOverwrites: [{
+            id: this.guild.roles.everyone,
+            deny: Discord.Permissions.FLAGS.VIEW_CHANNEL,
+         }, {
+            id: this.manager.bot.client.user,
+            allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
+         }]
+      });
+      this.genChannel = await this.guild.channels.create("Lobby", {
+         parent: this.matchChannel,
+         permissionOverwrites: [{
+            id: this.teamARole,
+            allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
+         }, {
+            id: this.teamBRole,
+            allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
+         },{
+            id: this.guild.roles.everyone,
+            deny: Discord.Permissions.FLAGS.VIEW_CHANNEL,
+         },{
+            id: this.manager.bot.client.user,
+            allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
+         }]
+      });
+
+      this.teamAVoice = await this.guild.channels.create("Team A", {
+         type: "voice",
+         parent: this.matchChannel,
+         permissionOverwrites: [{
+            id: this.teamARole,
+            allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
+         },{
+            id: this.guild.roles.everyone,
+            deny: Discord.Permissions.FLAGS.VIEW_CHANNEL,
+         },{
+            id: this.manager.bot.client.user,
+            allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
+         }]
+      });
+
+      this.teamBVoice = await this.guild.channels.create("Team B", {
+         type: "voice",
+         parent: this.matchChannel,
+         permissionOverwrites: [{
+            id: this.teamBRole,
+            allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
+         },{
+            id: this.guild.roles.everyone,
+            deny: Discord.Permissions.FLAGS.VIEW_CHANNEL,
+         },{
+            id: this.manager.bot.client.user,
+            allow: Discord.Permissions.FLAGS.VIEW_CHANNEL
+         }]
+      });
+
+      for (var i = 0; i < this.teamA.length; i++) {
+         this.guild.member(this.teamA[i]).roles.add(this.teamARole);
+      }
+      for (var i = 0; i < this.teamB.length; i++) {
+         this.guild.member(this.teamB[i]).roles.add(this.teamBRole);
+      }
+   }
+
+   async destroy() {
+      await this.genChannel.delete();
+      await this.teamARole.delete();
+      await this.teamBRole.delete();
+      await this.teamBVoice.delete();
+      await this.teamAVoice.delete();
+      await this.matchChannel.delete();
    }
 }
 
