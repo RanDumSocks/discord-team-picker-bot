@@ -107,11 +107,14 @@ class TeamPicker {
 
    shutdown() {
       this.debug('Shutting down...');
+      var proms = [];
       this.channelMap.forEach( (val, key, map) => {
-         val.destroy();
+         proms.push(val.destroy());
       });
-      //this.client.destroy();
-      //process.exit();
+      Promise.all(proms).then( _ => {
+         this.client.destroy();
+         process.exit();
+      });
    }
 }
 
@@ -360,9 +363,11 @@ class ChannelManager {
    }
 
    destroy() {
+      var proms = [];
       for (var i = 0; i < this.matches.length; i++) {
-         this.matches[i].destroy();
+         proms.push(this.matches[i].destroy());
       }
+      return Promise.all(proms);
    }
 }
 
@@ -486,13 +491,16 @@ class Match {
       }
    }
 
-   async destroy() {
-      await this.genChannel.delete();
-      await this.teamARole.delete();
-      await this.teamBRole.delete();
-      await this.teamBVoice.delete();
-      await this.teamAVoice.delete();
-      await this.matchChannel.delete();
+   destroy() {
+      return new Promise( async (res, rej) => {
+         await this.genChannel.delete();
+         await this.teamARole.delete();
+         await this.teamBRole.delete();
+         await this.teamBVoice.delete();
+         await this.teamAVoice.delete();
+         await this.matchChannel.delete();
+         res();
+      });
    }
 }
 
