@@ -2,5 +2,7 @@
    "channels": [
       "698031113058254929"
    ],
-   "debugChannel": "698050714324434986"
+   "debugChannel": "698050714324434986",
+   "commandPrefix": "!",
+   "messageUpdateInterval": 3000
 }
