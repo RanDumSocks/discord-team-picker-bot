@@ -125,8 +125,10 @@ class ChannelManager {
       this.playerQueue = new Map();
       this.message     = this.getMessage();
       this.captains    = [];
+      this.currCaptain = undefined;
       this.teamA       = [];
       this.teamB       = [];
+      this.matches     = [];
 
       // Reaction variables
       this.reaQueue = "🇶";
@@ -165,7 +167,23 @@ class ChannelManager {
             if (this.playerQueue.size == 0) this.state = "idle";
          }
       } else if (this.isState("picking")) {
-
+         var player = this.getPlayerFromEmoji(reaction.emoji.name);
+         if (player && user == this.currCaptain) {
+            if (this.teamA.includes(user)) {
+               this.currCaptain = this.captains[1];
+               this.teamA.push(player);
+            } else {
+               this.currCaptain = this.captains[0];
+               this.teamB.push(player);
+            }
+            this.dequeuePlayer(player);
+         }
+         if (this.playerQueue.size == 0) {
+            this.matches.push(new Match(this.teamA, this.teamB, this));
+            this.teamA = [];
+            this.teamB = [];
+            this.state = "idle";
+         }
       }
    }
 
@@ -208,6 +226,8 @@ class ChannelManager {
             val.playerEmoji = this.reaNums[playerNum];
             playerNum += 1;
          });
+
+         this.currCaptain = this.captains[0];
       }
    }
 
@@ -231,6 +251,14 @@ class ChannelManager {
          this.debug(`Dequeueing player ${user.username}`);
          this.updateQueueMessage();
       }
+   }
+
+   getPlayerFromEmoji(emojiName) {
+      var player = undefined;
+      this.playerQueue.forEach( (val, key, map) => {
+         if (val.playerEmoji == emojiName) player = val;
+      });
+      return player;
    }
 
    async getMessage() {
@@ -283,7 +311,7 @@ class ChannelManager {
          }
          this.setMessage(`Team captains have been picked, congrats ${this.captains[0]} and ${this.captains[1]}!\n`+
                          `When it's your turn to pick, react with the emoji next to the player's name to place them on your team.\n\n`+
-                         `<name>, please select your player!\n`+
+                         `${this.currCaptain}, please select your player!\n`+
                          `${playersText}\n\n`+
                          `Team A:\n${teamAString}\n`+
                          `Team B:\n${teamBString}\n`,
@@ -307,8 +335,46 @@ class ChannelManager {
       });
    }
 
+   async sendDM(user, msg) {
+       var dm = await user.createDM();
+       var msg = await dm.send(msg);
+       dm.delete();
+   }
+
    debug(message) {
       this.bot.debug(`\`${this.channel.name} manager:\`\n${message}`)
+   }
+}
+
+class Match {
+
+   constructor(teamA, teamB, manager) {
+      this.teamA   = teamA;
+      this.teamB   = teamB;
+      this.manager = manager;
+
+      this.sendTeamList();
+   }
+
+   sendTeamList() {
+      var teamAPlayers = "";
+      var teamBPlayers = "";
+      for (var i = 0; i < this.teamA.length; i++) {
+         teamAPlayers += `•     ${this.teamA[i]}\n`
+      }
+      for (var i = 0; i < this.teamB.length; i++) {
+         teamBPlayers += `•     ${this.teamB[i]}\n`
+      }
+      for (var i = 0; i < this.teamA.length; i++) {
+         this.teamA[i]
+         this.manager.sendDM(this.teamA[i], `Here are your team members:\n`+
+                                            `${teamAPlayers}\n`);
+      }
+      for (var i = 0; i < this.teamB.length; i++) {
+         this.teamB[i]
+         this.manager.sendDM(this.teamB[i], `Here are your team members:\n`+
+                                            `${teamBPlayers}\n`);
+      }
    }
 }
 
