@@ -19,6 +19,6 @@
   "dependencies": {
     "discord.js": "^12.1.1",
     "dotenv": "^8.2.0",
-    "edit-json-file": "^1.4.0"
+    "edit-json-file": "^1.7.0"
   }
 }
